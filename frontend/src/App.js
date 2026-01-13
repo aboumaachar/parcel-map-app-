@@ -81,15 +81,18 @@ function FitBounds({ geojson, searchFeature }) {
 }
 
 export default function App() {
-  const [geojson, setGeojson] = useState(null);
+  const [allGeojson, setAllGeojson] = useState(null); // Store all parcels from all uploads
+  const [displayGeojson, setDisplayGeojson] = useState(null); // What's shown on map (may be filtered)
   const [selected, setSelected] = useState(null);
   const [kmzFiles, setKmzFiles] = useState([]);
+  const [selectedKmzId, setSelectedKmzId] = useState(null);
   const [searchText, setSearchText] = useState("");
   const [searchMessage, setSearchMessage] = useState("");
   const [searchFeature, setSearchFeature] = useState(null);
+  const [isSearchActive, setIsSearchActive] = useState(false);
   const lastLayerRef = useRef(null);
 
-  // Fetch list of uploaded KMZ files on mount
+  // Fetch list of uploaded KMZ files on mount and periodically refresh
   useEffect(() => {
     const fetchKmzFiles = async () => {
       try {
@@ -104,23 +107,9 @@ export default function App() {
     };
 
     fetchKmzFiles();
-  }, []);
-
-  // Fetch list of uploaded KMZ files on mount
-  useEffect(() => {
-    const fetchKmzFiles = async () => {
-      try {
-        const response = await fetch("/api/kmz");
-        if (response.ok) {
-          const data = await response.json();
-          setKmzFiles(data.files || []);
-        }
-      } catch (error) {
-        console.error("Error fetching KMZ files:", error);
-      }
-    };
-
-    fetchKmzFiles();
+    // Refresh file list every 3 seconds to pick up new uploads
+    const interval = setInterval(fetchKmzFiles, 3000);
+    return () => clearInterval(interval);
   }, []);
 
   const handleSearch = () => {
@@ -129,13 +118,13 @@ export default function App() {
       return;
     }
 
-    if (!geojson?.features?.length) {
+    if (!allGeojson?.features?.length) {
       setSearchMessage("No parcels loaded. Upload a KMZ file first.");
       return;
     }
 
     // Search for parcel matching the cadaster number
-    const found = geojson.features.find((feature) => {
+    const found = allGeojson.features.find((feature) => {
       const cad = getCadasterNumber(feature.properties);
       return cad && cad.toString().toLowerCase().includes(searchText.toLowerCase());
     });
@@ -144,6 +133,12 @@ export default function App() {
       setSearchMessage("✓ Found and zoomed to parcel!");
       setSearchFeature(found);
       setSelected(found);
+      setIsSearchActive(true);
+      // Show only the found parcel on the map
+      setDisplayGeojson({
+        type: "FeatureCollection",
+        features: [found]
+      });
     } else {
       setSearchMessage("❌ No parcel found matching that number");
       setSearchFeature(null);
@@ -154,6 +149,48 @@ export default function App() {
     setSearchText("");
     setSearchMessage("");
     setSearchFeature(null);
+    setIsSearchActive(false);
+    // Reset to show all parcels
+    setDisplayGeojson(allGeojson);
+  };
+
+  const handleResetView = () => {
+    setSearchText("");
+    setSearchMessage("");
+    setSearchFeature(null);
+    setIsSearchActive(false);
+    setSelected(null);
+    // Reset to show all parcels
+    setDisplayGeojson(allGeojson);
+  };
+
+  // Handle when new KMZ is uploaded - concatenate features
+  const handleKmzUpload = (newGeojson) => {
+    if (!newGeojson?.features?.length) return;
+
+    let combined;
+    if (allGeojson?.features?.length) {
+      // Concatenate new features with existing ones
+      combined = {
+        type: "FeatureCollection",
+        features: [...allGeojson.features, ...newGeojson.features]
+      };
+    } else {
+      combined = newGeojson;
+    }
+
+    setAllGeojson(combined);
+    setDisplayGeojson(combined);
+    setIsSearchActive(false);
+    setSearchText("");
+    setSearchMessage("");
+  };
+
+  // Handle KMZ file selection from dropdown
+  const handleSelectKmz = async (fileId) => {
+    // Note: This would require a backend endpoint to fetch a specific KMZ's features
+    // For now, we'll just track the selection
+    setSelectedKmzId(fileId);
   };
 
   const onEachFeature = useMemo(() => {
@@ -211,11 +248,11 @@ export default function App() {
               attribution="&copy; OpenStreetMap contributors"
             />
 
-            {geojson ? <FitBounds geojson={geojson} searchFeature={searchFeature} /> : null}
+            {displayGeojson ? <FitBounds geojson={displayGeojson} searchFeature={searchFeature} /> : null}
 
-            {geojson ? (
+            {displayGeojson ? (
               <GeoJSON
-                data={geojson}
+                data={displayGeojson}
                 style={defaultStyle}
                 onEachFeature={onEachFeature}
               />
@@ -224,26 +261,31 @@ export default function App() {
         </div>
 
         <aside style={{ padding: 12, border: "1px solid #333", borderRadius: 10, display: "flex", flexDirection: "column" }}>
-          <KMZUpload onGeoJSONReady={setGeojson} />
+          <KMZUpload onGeoJSONReady={handleKmzUpload} />
 
           <h3 style={{ marginTop: 12, marginBottom: 6 }}>Search & Filter</h3>
 
           <div style={{ marginBottom: 10 }}>
             <label style={{ display: "block", marginBottom: 6, fontSize: 13 }}>
-              <strong>Uploaded KMZ Files:</strong>
+              <strong>Uploaded KMZ Files ({kmzFiles.length}):</strong>
             </label>
             <select
-              disabled
+              value={selectedKmzId || ""}
+              onChange={(e) => handleSelectKmz(e.target.value)}
               style={{
                 width: "100%",
                 padding: 6,
                 borderRadius: 4,
                 border: "1px solid #ccc",
-                fontSize: 12,
-                opacity: 0.7
+                fontSize: 12
               }}
             >
-              <option>{kmzFiles.length ? `${kmzFiles.length} files uploaded` : "No files uploaded"}</option>
+              <option value="">-- All Files --</option>
+              {kmzFiles.map((file) => (
+                <option key={file.id} value={file.id}>
+                  {file.original_name} ({file.feature_count} parcels)
+                </option>
+              ))}
             </select>
           </div>
 
@@ -267,7 +309,7 @@ export default function App() {
                 marginBottom: 8
               }}
             />
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 4, marginBottom: 8 }}>
               <button
                 onClick={handleSearch}
                 style={{
@@ -297,6 +339,21 @@ export default function App() {
                 }}
               >
                 Clear
+              </button>
+              <button
+                onClick={handleResetView}
+                style={{
+                  padding: "6px 10px",
+                  borderRadius: 4,
+                  border: "1px solid #666",
+                  backgroundColor: "#e8e8e8",
+                  color: "#333",
+                  cursor: "pointer",
+                  fontSize: 12,
+                  fontWeight: 600
+                }}
+              >
+                Reset All
               </button>
             </div>
             {searchMessage && (
