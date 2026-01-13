@@ -18,6 +18,25 @@ export default function KMZUpload({ onGeoJSONReady }) {
     }
 
     try {
+      // Step 1: Upload to backend first
+      setStatus("Uploading to server...");
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const uploadResponse = await fetch("/api/kmz/upload", {
+        method: "POST",
+        body: formData
+      });
+
+      if (!uploadResponse.ok) {
+        const errorData = await uploadResponse.json();
+        throw new Error(errorData.error || "Upload failed");
+      }
+
+      const uploadResult = await uploadResponse.json();
+      console.log("Upload result:", uploadResult);
+
+      // Step 2: Parse client-side for immediate display
       setStatus("Parsing KMZ...");
       const geojson = await parseKmzToGeoJSON(file);
 
@@ -28,10 +47,10 @@ export default function KMZUpload({ onGeoJSONReady }) {
       }
 
       onGeoJSONReady?.(geojson);
-      setStatus(`Loaded ${geojson.features.length} parcel(s).`);
+      setStatus(`Uploaded and loaded ${geojson.features.length} parcel(s).`);
     } catch (e) {
       console.error(e);
-      setError(e?.message || "Failed to parse KMZ.");
+      setError(e?.message || "Failed to upload/parse KMZ.");
       setStatus("");
     }
   };
