@@ -1,0 +1,25 @@
+# Small worker image
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Install runtime deps
+RUN apk add --no-cache dumb-init
+
+# Copy package files and install only production deps
+COPY package*.json .
+# Install from lockfile for deterministic production builds
+RUN npm ci --only=production --no-audit --no-fund
+
+# Copy worker code
+COPY . .
+
+# Expose worker health port
+EXPOSE 3002
+
+# Health check for Docker
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:3002/health || exit 1
+
+ENTRYPOINT ["/usr/bin/dumb-init", "--"]
+CMD ["node", "worker.bull.js"]

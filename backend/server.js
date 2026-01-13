@@ -197,6 +197,17 @@ app.get('/api/kmz/:id', async (req, res, next) => {
     } catch (e) { next(e); }
 });
 
+// Get all KMZ files (for dropdown)
+app.get('/api/kmz', async (req, res, next) => {
+    try {
+        const r = await pool.query(
+            'SELECT id, original_name, status, feature_count, upload_date FROM kmz_files ORDER BY upload_date DESC LIMIT 100',
+            []
+        );
+        res.json({ files: r.rows });
+    } catch (e) { next(e); }
+});
+
 // Start server only when run directly (prevents tests from auto-starting a listener)
 if (require.main === module) {
     app.listen(PORT, () => {

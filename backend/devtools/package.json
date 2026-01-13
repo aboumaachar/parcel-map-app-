@@ -1,0 +1,13 @@
+{
+  "name": "parcel-backend-devtools",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "@bull-board/express": "^4.1.0",
+    "@bull-board/api": "^4.1.0",
+    "@bull-board/ui": "^4.1.0",
+    "@bull-board/adapter-bullmq": "^4.1.0",
+    "bullmq": "^1.85.0",
+    "supertest": "^6.4.0"
+  }
+}

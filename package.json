@@ -1,0 +1,15 @@
+{
+  "name": "parcel-map-app",
+  "version": "1.0.0",
+  "private": true,
+  "devDependencies": {
+    "@playwright/test": "^1.57.0",
+    "playwright": "^1.57.0"
+  },
+  "scripts": {
+    "e2e": "npx playwright test"
+  },
+  "dependencies": {
+    "jszip": "^3.10.1"
+  }
+}

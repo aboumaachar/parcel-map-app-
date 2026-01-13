@@ -1,0 +1,133 @@
+version: '3.8'
+
+services:
+  postgis:
+    image: postgis/postgis:15-3.3
+    container_name: parcel-postgis
+    environment:
+      POSTGRES_DB: parcel_db
+      POSTGRES_USER: parcel_user
+      POSTGRES_PASSWORD: parcel_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - parcel-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U parcel_user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: parcel-redis
+    ports:
+      - "6379:6379"
+    networks:
+      - parcel-network
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  geoserver:
+    image: kartoza/geoserver:2.23.1
+    container_name: parcel-geoserver
+    environment:
+      GEOSERVER_ADMIN_PASSWORD: geoserver
+      SAMPLE_DATA: "false"
+      GEOSERVER_DATA_DIR: /opt/geoserver/data_dir
+    ports:
+      - "8081:8080"
+    volumes:
+      - geoserver_data:/opt/geoserver/data_dir
+      - ./geoserver/styles:/opt/geoserver/data_dir/styles
+    depends_on:
+      postgis:
+        condition: service_healthy
+    networks:
+      - parcel-network
+    restart: unless-stopped
+
+  backend:
+    build: ./backend
+    container_name: parcel-backend
+    environment:
+      DB_HOST: postgis
+      DB_PORT: 5432
+      DB_NAME: parcel_db
+      DB_USER: parcel_user
+      DB_PASSWORD: parcel_password
+      GEOSERVER_URL: http://geoserver:8080/geoserver
+      KMZ_UPLOAD_DIR: /app/uploads/kmz
+      UPLOAD_DIR: /app/uploads
+      TEMP_DIR: /app/temp
+      NODE_ENV: production
+      PORT: 3001
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./uploads:/app/uploads
+      - ./temp:/app/temp
+      - ./kmz_data:/app/kmz_data
+    depends_on:
+      postgis:
+        condition: service_healthy
+      geoserver:
+        condition: service_started
+    networks:
+      - parcel-network
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.worker
+    container_name: parcel-worker
+    environment:
+      DB_HOST: postgis
+      DB_PORT: 5432
+      DB_NAME: parcel_db
+      DB_USER: parcel_user
+      DB_PASSWORD: parcel_password
+      GEOSERVER_URL: http://geoserver:8080/geoserver
+      NODE_ENV: production
+      REDIS_URL: redis://redis:6379
+    ports:
+      - "3002:3002"
+    volumes:
+      - ./uploads:/app/uploads
+    depends_on:
+      postgis:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+      - parcel-network
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    container_name: parcel-frontend
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    networks:
+      - parcel-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  geoserver_data:
+
+networks:
+  parcel-network:
+    driver: bridge

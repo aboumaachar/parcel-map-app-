@@ -1,0 +1,114 @@
+﻿# syntax=docker/dockerfile:1
+
+version: '3.8'
+
+services:
+  postgis:
+    image: postgis/postgis:15-3.3
+    container_name: parcel-postgis-dev
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data_dev:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - parcel-network
+
+  geoserver:
+    image: kartoza/geoserver:2.23.1
+    container_name: parcel-geoserver-dev
+    environment:
+      GEOSERVER_ADMIN_PASSWORD: ${GEOSERVER_PASSWORD}
+      GEOSERVER_ADMIN_USER: ${GEOSERVER_USER}
+      SAMPLE_DATA: "false"
+    ports:
+      - "8080:8080"
+    volumes:
+      - geoserver_data_dev:/opt/geoserver/data_dir
+    depends_on:
+      - postgis
+    networks:
+      - parcel-network
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: base
+    container_name: parcel-backend-dev
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      DB_HOST: postgis
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      GEOSERVER_URL: http://geoserver:8080/geoserver
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+      - backend_uploads_dev:/app/uploads
+      - backend_temp_dev:/app/temp
+    command: npm run dev
+    depends_on:
+      - postgis
+      - geoserver
+    networks:
+      - parcel-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: build
+    container_name: parcel-frontend-dev
+    environment:
+      - REACT_APP_API_URL=http://localhost:3001/api
+      - CHOKIDAR_USEPOLLING=true
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    command: npm start
+    depends_on:
+      - backend
+    networks:
+      - parcel-network
+    stdin_open: true
+    tty: true
+
+  bull-board:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: parcel-bull-board-dev
+    environment:
+      REDIS_URL: redis://redis:6379
+      BULL_BOARD_PORT: 3003
+    ports:
+      - "3003:3003"
+    volumes:
+      - ./backend:/app
+    command: node devtools/bullBoard.js
+    depends_on:
+      - redis
+    networks:
+      - parcel-network
+    restart: unless-stopped
+volumes:
+  postgres_data_dev:
+  geoserver_data_dev:
+  backend_uploads_dev:
+  backend_temp_dev:
+
+networks:
+  parcel-network:
+    driver: bridge
